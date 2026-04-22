@@ -851,4 +851,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    if "--gui" in sys.argv:
+        from s3_sync_tk_gui import launch_gui
+
+        sys.exit(launch_gui())
     sys.exit(main())
