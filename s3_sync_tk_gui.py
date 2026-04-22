@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import queue
+import shutil
 import subprocess
 import sys
 import threading
@@ -39,6 +40,7 @@ ENV_KEY_ORDER: List[str] = [
     "MULTIPART_THRESHOLD_MB",
     "MULTIPART_CHUNK_MB",
     "PROGRESS_EVERY",
+    "FORCE_OVERWRITE",
     "LOG_LEVEL",
     "LOG_FILE",
     "FULL_RESPONSE",
@@ -69,6 +71,7 @@ DEFAULT_ENV: Dict[str, str] = {
     "MULTIPART_THRESHOLD_MB": "64",
     "MULTIPART_CHUNK_MB": "16",
     "PROGRESS_EVERY": "200",
+    "FORCE_OVERWRITE": "true",
     "LOG_LEVEL": "INFO",
     "LOG_FILE": "",
     "FULL_RESPONSE": "false",
@@ -84,6 +87,13 @@ ERROR_PATTERNS = (
     "Traceback",
     "FAILED",
 )
+
+
+def resolve_python_command() -> str:
+    for name in ("python3", "python"):
+        if shutil.which(name):
+            return name
+    return sys.executable
 
 
 def env_to_bool(text: str) -> bool:
@@ -165,14 +175,14 @@ class SyncGuiApp:
         self.root.title("S3 同期ツール (Python/Tkinter)")
         self.root.geometry("1280x860")
         self.root.minsize(1120, 760)
+        self.python_cmd = resolve_python_command()
 
         self.env_file_var = tk.StringVar(value=str(Path.cwd() / ".env"))
         self.scope_var = tk.StringVar(value="all")
-        self.safety_mode_var = tk.BooleanVar(value=True)
-        self.dry_run_var = tk.BooleanVar(value=True)
+        self.dry_run_var = tk.BooleanVar(value=False)
         self.delete_var = tk.BooleanVar(value=False)
         self.copy_tags_var = tk.BooleanVar(value=False)
-        self.force_var = tk.BooleanVar(value=False)
+        self.force_var = tk.BooleanVar(value=True)
         self.full_response_var = tk.BooleanVar(value=False)
         self.debug_botocore_var = tk.BooleanVar(value=False)
         self.traceback_var = tk.BooleanVar(value=False)
@@ -192,7 +202,6 @@ class SyncGuiApp:
         self._build_ui()
         self.load_env()
         self._refresh_scope_state()
-        self._apply_safety_mode()
         self.root.after(150, self._drain_log_queue)
 
     def _build_ui(self) -> None:
@@ -202,7 +211,7 @@ class SyncGuiApp:
         top = ttk.LabelFrame(main, text="設定ファイル", padding=8)
         top.pack(fill=tk.X)
 
-        ttk.Label(top, text=".env パス").grid(row=0, column=0, sticky=tk.W, padx=4, pady=4)
+        ttk.Label(top, text="設定ファイルパス").grid(row=0, column=0, sticky=tk.W, padx=4, pady=4)
         ttk.Entry(top, textvariable=self.env_file_var, width=84).grid(row=0, column=1, sticky=tk.EW, padx=4, pady=4)
         ttk.Button(top, text="開く...", command=self.pick_env_file).grid(row=0, column=2, padx=4, pady=4)
         ttk.Button(top, text="読込", command=self.load_env).grid(row=0, column=3, padx=4, pady=4)
@@ -236,6 +245,9 @@ class SyncGuiApp:
 
         mode = ttk.LabelFrame(parent, text="同期モード", padding=8)
         mode.pack(fill=tk.X, pady=8)
+        mode.columnconfigure(0, weight=1)
+        mode.columnconfigure(1, weight=1)
+        mode.columnconfigure(2, weight=1)
         self.rb_all = ttk.Radiobutton(mode, text="バケット全体を同期", variable=self.scope_var, value="all", command=self._refresh_scope_state)
         self.rb_prefix = ttk.Radiobutton(mode, text="フォルダ単位で同期", variable=self.scope_var, value="prefix", command=self._refresh_scope_state)
         self.rb_exact = ttk.Radiobutton(mode, text="ファイル単位で同期", variable=self.scope_var, value="exact", command=self._refresh_scope_state)
@@ -258,13 +270,6 @@ class SyncGuiApp:
         self.option_area.pack(fill=tk.X, expand=True)
 
         self.option_widgets: list[ttk.Checkbutton] = []
-        self.cb_safety = ttk.Checkbutton(
-            self.option_area,
-            text="安全運転モード（常に事前確認のみ）",
-            variable=self.safety_mode_var,
-            command=self._apply_safety_mode,
-        )
-        self.option_widgets.append(self.cb_safety)
         self.dry_run_cb = ttk.Checkbutton(
             self.option_area,
             text="事前確認のみ（変更しない）",
@@ -692,7 +697,7 @@ class SyncGuiApp:
 
     def pick_env_file(self) -> None:
         picked = filedialog.askopenfilename(
-            title=".env を選択",
+            title="設定ファイルを選択",
             filetypes=[("Env files", ".env*"), ("All files", "*.*")],
         )
         if picked:
@@ -704,6 +709,7 @@ class SyncGuiApp:
         for key in ENV_KEY_ORDER:
             self.env_vars[key].set(data.get(key, DEFAULT_ENV.get(key, "")))
         self.log_level_var.set((data.get("LOG_LEVEL") or "INFO").upper())
+        self.force_var.set(env_to_bool(data.get("FORCE_OVERWRITE", "true")))
         self.full_response_var.set(env_to_bool(data.get("FULL_RESPONSE", "false")))
         self.debug_botocore_var.set(env_to_bool(data.get("DEBUG_BOTOCORE", "false")))
         self.traceback_var.set(env_to_bool(data.get("TRACEBACK_ON_ERROR", "false")))
@@ -749,15 +755,6 @@ class SyncGuiApp:
             self.env_vars["PREFIX"].set("")
         self._update_summary()
 
-    def _apply_safety_mode(self) -> None:
-        safety = self.safety_mode_var.get()
-        if safety:
-            self.dry_run_var.set(True)
-            self.dry_run_cb.state(["disabled"])
-        else:
-            self.dry_run_cb.state(["!disabled"])
-        self._update_summary()
-
     def _collect_env_from_ui(self) -> OrderedDict[str, str]:
         data: OrderedDict[str, str] = OrderedDict()
         for key in ENV_KEY_ORDER:
@@ -767,6 +764,7 @@ class SyncGuiApp:
             data[key] = self.env_vars[key].get().strip()
 
         data["LOG_LEVEL"] = self.log_level_var.get().strip().upper() or "INFO"
+        data["FORCE_OVERWRITE"] = "true" if self.force_var.get() else "false"
         data["FULL_RESPONSE"] = "true" if self.full_response_var.get() else "false"
         data["DEBUG_BOTOCORE"] = "true" if self.debug_botocore_var.get() else "false"
         data["TRACEBACK_ON_ERROR"] = "true" if self.traceback_var.get() else "false"
@@ -793,8 +791,7 @@ class SyncGuiApp:
             f"style={self.env_vars['DST_S3_ADDRESSING_STYLE'].get().strip() or 'auto'}, "
             f"AK={dst_ak}\n"
             f"同期範囲: {scope_text}\n"
-            f"事前確認のみ={self.dry_run_var.get()}, 余分削除={self.delete_var.get()}, "
-            f"安全運転モード={self.safety_mode_var.get()}"
+            f"事前確認のみ={self.dry_run_var.get()}, 常に上書き={self.force_var.get()}, 余分削除={self.delete_var.get()}"
         )
         self.summary_var.set(summary)
 
@@ -831,12 +828,7 @@ class SyncGuiApp:
         args = [
             "--env-file",
             str(Path(self.env_file_var.get().strip())),
-            "--log-level",
-            data["LOG_LEVEL"],
         ]
-
-        if data["LOG_FILE"]:
-            args += ["--log-file", data["LOG_FILE"]]
 
         if self.scope_var.get() == "prefix" and data["PREFIX"]:
             args += ["--prefix", data["PREFIX"]]
@@ -848,46 +840,25 @@ class SyncGuiApp:
         if self.delete_var.get():
             args.append("--delete")
         if self.copy_tags_var.get():
-            args.append("--copy-tags")
+            args.append("--tags")
         if self.force_var.get():
             args.append("--force")
-        if self.full_response_var.get():
-            args.append("--full-response")
         else:
-            args.append("--no-full-response")
-        if self.debug_botocore_var.get():
-            args.append("--debug-botocore")
-        if self.traceback_var.get():
-            args.append("--traceback-on-error")
-
-        args += ["--workers", data["WORKERS"]]
-        args += ["--multipart-threshold-mb", data["MULTIPART_THRESHOLD_MB"]]
-        args += ["--multipart-chunk-mb", data["MULTIPART_CHUNK_MB"]]
-        args += ["--progress-every", data["PROGRESS_EVERY"]]
+            args.append("--no-force")
         return args
 
     def run_test(self, which: str) -> None:
         self.save_env()
         cmd = [
-            sys.executable,
+            self.python_cmd,
             str(Path.cwd() / "test_aws_key.py"),
             "--which",
             which,
-            "--list-objects",
+            "--list",
             "3",
             "--env-file",
             str(Path(self.env_file_var.get().strip())),
-            "--log-level",
-            self.log_level_var.get().strip().upper() or "INFO",
         ]
-        if self.full_response_var.get():
-            cmd.append("--full-response")
-        else:
-            cmd.append("--no-full-response")
-        if self.debug_botocore_var.get():
-            cmd.append("--debug-botocore")
-        if self.traceback_var.get():
-            cmd.append("--traceback-on-error")
 
         self._append_log(f"[INFO] 実行: {' '.join(cmd)}")
         self._spawn_process(cmd)
@@ -909,11 +880,11 @@ class SyncGuiApp:
             if not messagebox.askyesno("危険操作の確認", msg):
                 return
 
-        if not self.safety_mode_var.get() and not self.dry_run_var.get():
-            if not messagebox.askyesno("最終確認", "本実行（事前確認モードOFF）です。続行しますか？"):
+        if not self.dry_run_var.get():
+            if not messagebox.askyesno("最終確認", "本実行を続行しますか？"):
                 return
 
-        cmd = [sys.executable, str(Path.cwd() / "sync_s3_cross_account.py")]
+        cmd = [self.python_cmd, str(Path.cwd() / "sync_s3_cross_account.py")]
         cmd += self._build_common_args()
 
         self._append_log(f"[INFO] 実行: {' '.join(cmd)}")
@@ -945,7 +916,7 @@ def launch_gui() -> int:
 
 
 if __name__ == "__main__":
-    if "--gui" not in sys.argv:
-        print("このGUIは --gui パラメータ付きで起動してください。例: python s3_sync_tk_gui.py --gui")
+    if "--gui" not in sys.argv and "-g" not in sys.argv:
+        print("このGUIは --gui または -g パラメータ付きで起動してください。例: python3 s3_sync_tk_gui.py -g")
         sys.exit(2)
     sys.exit(launch_gui())

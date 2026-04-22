@@ -3,9 +3,9 @@
 Validate AWS credentials and optional S3 bucket access for source/destination.
 
 Examples:
-  python test_aws_key.py --which src
-  python test_aws_key.py --which dst
-  python test_aws_key.py --which both --list-objects 3
+  python3 test_aws_key.py --which src
+  python3 test_aws_key.py --which dst
+  python3 test_aws_key.py --which both --list 3
 """
 
 from __future__ import annotations
@@ -160,87 +160,54 @@ def choose_credential_mode(access_key_id: str | None, secret_access_key: str | N
 
 def parse_args() -> argparse.Namespace:
     preload_parser = argparse.ArgumentParser(add_help=False)
-    preload_parser.add_argument("--env-file", default=".env", help="Path to .env file (default: .env)")
+    preload_parser.add_argument("-e", "--env-file", default=".env", help="Path to .env file (default: .env)")
     preload_args, _ = preload_parser.parse_known_args()
     load_dotenv(preload_args.env_file, override=True)
 
     parser = argparse.ArgumentParser(
         parents=[preload_parser],
-        description="Validate AWS source/destination credentials and S3 access.",
+        description="Validate source/destination S3 credentials and bucket access.",
     )
-    parser.add_argument("--which", choices=["src", "dst", "both"], default="both")
-    parser.add_argument("--prefix", default=os.getenv("PREFIX", ""))
-    parser.add_argument("--list-objects", type=int, default=0, help="List up to N object keys per bucket")
-    parser.add_argument(
-        "--log-level",
-        default=os.getenv("LOG_LEVEL", "INFO").upper(),
-        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-        help="Log level (default: env LOG_LEVEL or INFO)",
-    )
-    parser.add_argument(
-        "--log-file",
-        default=os.getenv("LOG_FILE"),
-        help="Optional log file path (default: env LOG_FILE)",
-    )
-    parser.add_argument(
-        "--debug-botocore",
-        action="store_true",
-        default=get_env_bool("DEBUG_BOTOCORE", False),
-        help="Enable boto3/botocore/urllib3 debug logging",
-    )
-    parser.add_argument(
-        "--full-response",
-        dest="full_response",
-        action="store_true",
-        help="Print full AWS API responses",
-    )
-    parser.add_argument(
-        "--no-full-response",
-        dest="full_response",
-        action="store_false",
-        help="Do not print full AWS API responses",
-    )
-    parser.add_argument(
-        "--traceback-on-error",
-        action="store_true",
-        default=get_env_bool("TRACEBACK_ON_ERROR", False),
-        help="Print full traceback on exceptions",
-    )
-    parser.set_defaults(full_response=get_env_bool("FULL_RESPONSE", True))
-
-    parser.add_argument("--src-ak", default=os.getenv("SRC_AWS_ACCESS_KEY_ID"))
-    parser.add_argument("--src-sk", default=os.getenv("SRC_AWS_SECRET_ACCESS_KEY"))
-    parser.add_argument("--src-token", default=os.getenv("SRC_AWS_SESSION_TOKEN"))
-    parser.add_argument("--src-profile", default=os.getenv("SRC_AWS_PROFILE"))
-    parser.add_argument("--src-region", default=os.getenv("SRC_REGION"))
-    parser.add_argument("--src-bucket", default=os.getenv("SRC_BUCKET"))
-    parser.add_argument("--src-endpoint", default=os.getenv("SRC_S3_ENDPOINT"))
-    parser.add_argument(
-        "--src-addressing-style",
-        default=os.getenv("SRC_S3_ADDRESSING_STYLE", "auto"),
-        choices=["auto", "path", "virtual"],
-    )
-
-    parser.add_argument("--dst-ak", default=os.getenv("DST_AWS_ACCESS_KEY_ID"))
-    parser.add_argument("--dst-sk", default=os.getenv("DST_AWS_SECRET_ACCESS_KEY"))
-    parser.add_argument("--dst-token", default=os.getenv("DST_AWS_SESSION_TOKEN"))
-    parser.add_argument("--dst-profile", default=os.getenv("DST_AWS_PROFILE"))
-    parser.add_argument("--dst-region", default=os.getenv("DST_REGION"))
-    parser.add_argument("--dst-bucket", default=os.getenv("DST_BUCKET"))
-    parser.add_argument("--dst-endpoint", default=os.getenv("DST_S3_ENDPOINT"))
-    parser.add_argument(
-        "--dst-addressing-style",
-        default=os.getenv("DST_S3_ADDRESSING_STYLE", "auto"),
-        choices=["auto", "path", "virtual"],
-    )
+    parser.add_argument("-w", "--which", choices=["src", "dst", "both"], default="both")
+    parser.add_argument("-p", "--prefix", default=os.getenv("PREFIX", ""))
+    parser.add_argument("-l", "--list", "--list-objects", dest="list_objects", type=int, default=0, help="List up to N keys")
 
     args = parser.parse_args()
+
+    args.log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+    args.log_file = os.getenv("LOG_FILE")
+    args.debug_botocore = get_env_bool("DEBUG_BOTOCORE", False)
+    args.full_response = get_env_bool("FULL_RESPONSE", True)
+    args.traceback_on_error = get_env_bool("TRACEBACK_ON_ERROR", False)
+
+    args.src_ak = os.getenv("SRC_AWS_ACCESS_KEY_ID")
+    args.src_sk = os.getenv("SRC_AWS_SECRET_ACCESS_KEY")
+    args.src_token = os.getenv("SRC_AWS_SESSION_TOKEN")
+    args.src_profile = os.getenv("SRC_AWS_PROFILE")
+    args.src_region = os.getenv("SRC_REGION")
+    args.src_bucket = os.getenv("SRC_BUCKET")
+    args.src_endpoint = os.getenv("SRC_S3_ENDPOINT")
+    args.src_addressing_style = (os.getenv("SRC_S3_ADDRESSING_STYLE", "auto").strip().lower() or "auto")
+
+    args.dst_ak = os.getenv("DST_AWS_ACCESS_KEY_ID")
+    args.dst_sk = os.getenv("DST_AWS_SECRET_ACCESS_KEY")
+    args.dst_token = os.getenv("DST_AWS_SESSION_TOKEN")
+    args.dst_profile = os.getenv("DST_AWS_PROFILE")
+    args.dst_region = os.getenv("DST_REGION")
+    args.dst_bucket = os.getenv("DST_BUCKET")
+    args.dst_endpoint = os.getenv("DST_S3_ENDPOINT")
+    args.dst_addressing_style = (os.getenv("DST_S3_ADDRESSING_STYLE", "auto").strip().lower() or "auto")
+
     if has_text(args.src_ak) != has_text(args.src_sk):
-        parser.error("source AK/SK must be provided together")
+        parser.error("source AK/SK must be provided together in .env")
     if has_text(args.dst_ak) != has_text(args.dst_sk):
-        parser.error("destination AK/SK must be provided together")
+        parser.error("destination AK/SK must be provided together in .env")
     if args.list_objects < 0:
-        parser.error("--list-objects must be >= 0")
+        parser.error("--list must be >= 0")
+    if args.src_addressing_style not in {"auto", "path", "virtual"}:
+        parser.error("SRC_S3_ADDRESSING_STYLE must be one of: auto, path, virtual")
+    if args.dst_addressing_style not in {"auto", "path", "virtual"}:
+        parser.error("DST_S3_ADDRESSING_STYLE must be one of: auto, path, virtual")
     return args
 
 

@@ -186,6 +186,7 @@ class S3ObjectInfo:
 def parse_args() -> argparse.Namespace:
     preload_parser = argparse.ArgumentParser(add_help=False)
     preload_parser.add_argument(
+        "-e",
         "--env-file",
         default=".env",
         help="Path to .env file (default: .env in current folder)",
@@ -195,209 +196,120 @@ def parse_args() -> argparse.Namespace:
 
     parser = argparse.ArgumentParser(
         parents=[preload_parser],
-        description=(
-            "Cross-account S3 sync with flexible credentials for source and destination "
-            "(AK/SK, profile, or default credential chain)."
-        )
+        description="S3 sync (common options only). Credentials and advanced settings come from .env.",
     )
     parser.add_argument(
-        "--src-bucket",
-        default=os.getenv("SRC_BUCKET"),
-        help="Source (prod) bucket name (default: env SRC_BUCKET)",
-    )
-    parser.add_argument(
-        "--dst-bucket",
-        default=os.getenv("DST_BUCKET"),
-        help="Destination (test) bucket name (default: env DST_BUCKET)",
-    )
-    parser.add_argument(
-        "--src-region",
-        default=os.getenv("SRC_REGION"),
-        help="Source bucket region (default: env SRC_REGION)",
-    )
-    parser.add_argument(
-        "--dst-region",
-        default=os.getenv("DST_REGION"),
-        help="Destination bucket region (default: env DST_REGION)",
-    )
-    parser.add_argument(
-        "--src-endpoint",
-        default=os.getenv("SRC_S3_ENDPOINT"),
-        help="Source custom S3 endpoint, for example http://minio.example.com:9000",
-    )
-    parser.add_argument(
-        "--dst-endpoint",
-        default=os.getenv("DST_S3_ENDPOINT"),
-        help="Destination custom S3 endpoint, for example http://minio.example.com:9000",
-    )
-    parser.add_argument(
-        "--src-addressing-style",
-        default=os.getenv("SRC_S3_ADDRESSING_STYLE", "auto"),
-        choices=["auto", "path", "virtual"],
-        help="Source S3 addressing style (default: env SRC_S3_ADDRESSING_STYLE or auto)",
-    )
-    parser.add_argument(
-        "--dst-addressing-style",
-        default=os.getenv("DST_S3_ADDRESSING_STYLE", "auto"),
-        choices=["auto", "path", "virtual"],
-        help="Destination S3 addressing style (default: env DST_S3_ADDRESSING_STYLE or auto)",
-    )
-    parser.add_argument(
+        "-p",
+        "--folder",
         "--prefix",
+        dest="prefix",
         default=os.getenv("PREFIX", ""),
-        help="Only sync this prefix (default: env PREFIX or whole bucket)",
+        help="Sync by folder path",
     )
     parser.add_argument(
+        "-k",
+        "--file",
         "--exact-key",
+        dest="exact_key",
         default=os.getenv("EXACT_KEY"),
-        help="Sync only this exact object key (default: env EXACT_KEY)",
+        help="Sync one file by full object key",
     )
     parser.add_argument(
-        "--src-ak",
-        default=os.getenv("SRC_AWS_ACCESS_KEY_ID"),
-        help="Source AWS access key id (default: env SRC_AWS_ACCESS_KEY_ID)",
-    )
-    parser.add_argument(
-        "--src-sk",
-        default=os.getenv("SRC_AWS_SECRET_ACCESS_KEY"),
-        help="Source AWS secret access key (default: env SRC_AWS_SECRET_ACCESS_KEY)",
-    )
-    parser.add_argument(
-        "--src-token",
-        default=os.getenv("SRC_AWS_SESSION_TOKEN"),
-        help="Optional source AWS session token (default: env SRC_AWS_SESSION_TOKEN)",
-    )
-    parser.add_argument(
-        "--src-profile",
-        default=os.getenv("SRC_AWS_PROFILE"),
-        help="Optional source AWS profile (default: env SRC_AWS_PROFILE)",
-    )
-    parser.add_argument(
-        "--dst-ak",
-        default=os.getenv("DST_AWS_ACCESS_KEY_ID"),
-        help="Destination AWS access key id (default: env DST_AWS_ACCESS_KEY_ID)",
-    )
-    parser.add_argument(
-        "--dst-sk",
-        default=os.getenv("DST_AWS_SECRET_ACCESS_KEY"),
-        help="Destination AWS secret access key (default: env DST_AWS_SECRET_ACCESS_KEY)",
-    )
-    parser.add_argument(
-        "--dst-token",
-        default=os.getenv("DST_AWS_SESSION_TOKEN"),
-        help="Optional destination AWS session token (default: env DST_AWS_SESSION_TOKEN)",
-    )
-    parser.add_argument(
-        "--dst-profile",
-        default=os.getenv("DST_AWS_PROFILE"),
-        help="Optional destination AWS profile (default: env DST_AWS_PROFILE)",
-    )
-    parser.add_argument(
-        "--workers",
-        type=int,
-        default=get_env_int("WORKERS", 8),
-        help="Concurrent workers for object copy (default: env WORKERS or 8)",
-    )
-    parser.add_argument(
-        "--multipart-threshold-mb",
-        type=int,
-        default=get_env_int("MULTIPART_THRESHOLD_MB", 64),
-        help="Multipart threshold in MB (default: env MULTIPART_THRESHOLD_MB or 64)",
-    )
-    parser.add_argument(
-        "--multipart-chunk-mb",
-        type=int,
-        default=get_env_int("MULTIPART_CHUNK_MB", 16),
-        help="Multipart chunk size in MB (default: env MULTIPART_CHUNK_MB or 16)",
-    )
-    parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Always overwrite destination objects",
-    )
-    parser.add_argument(
-        "--delete",
-        action="store_true",
-        help="Delete destination objects that do not exist in source",
-    )
-    parser.add_argument(
-        "--copy-tags",
-        action="store_true",
-        help="Also copy S3 object tags",
-    )
-    parser.add_argument(
+        "-n",
         "--dry-run",
         action="store_true",
-        help="Print actions only, do not upload/delete",
+        help="Preview only, no write/delete",
     )
     parser.add_argument(
-        "--progress-every",
-        type=int,
-        default=get_env_int("PROGRESS_EVERY", 200),
-        help="Print progress every N source objects (default: env PROGRESS_EVERY or 200)",
-    )
-    parser.add_argument(
-        "--log-level",
-        default=os.getenv("LOG_LEVEL", "INFO").upper(),
-        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-        help="Log level (default: env LOG_LEVEL or INFO)",
-    )
-    parser.add_argument(
-        "--log-file",
-        default=os.getenv("LOG_FILE"),
-        help="Optional log file path (default: env LOG_FILE)",
-    )
-    parser.add_argument(
-        "--debug-botocore",
+        "-d",
+        "--delete",
         action="store_true",
-        default=get_env_bool("DEBUG_BOTOCORE", False),
-        help="Enable boto3/botocore/urllib3 debug logging",
+        help="Delete extra objects on destination",
     )
     parser.add_argument(
-        "--full-response",
-        dest="full_response",
+        "-f",
+        "--force",
+        dest="force",
         action="store_true",
-        help="Print full AWS API responses in logs",
+        default=None,
+        help="Always overwrite destination objects (default: enabled)",
     )
     parser.add_argument(
-        "--no-full-response",
-        dest="full_response",
+        "--no-force",
+        dest="force",
         action="store_false",
-        help="Do not print full AWS API responses in logs",
+        help="Do not force overwrite; skip objects when size+etag are identical",
     )
     parser.add_argument(
-        "--traceback-on-error",
+        "-t",
+        "--tags",
+        "--copy-tags",
+        dest="copy_tags",
         action="store_true",
-        default=get_env_bool("TRACEBACK_ON_ERROR", False),
-        help="Print full traceback on exceptions",
+        help="Copy object tags too",
     )
-    parser.set_defaults(full_response=get_env_bool("FULL_RESPONSE", False))
     args = parser.parse_args()
 
+    # Advanced options are read from .env.
+    args.src_bucket = os.getenv("SRC_BUCKET")
+    args.dst_bucket = os.getenv("DST_BUCKET")
+    args.src_region = os.getenv("SRC_REGION")
+    args.dst_region = os.getenv("DST_REGION")
+    args.src_endpoint = os.getenv("SRC_S3_ENDPOINT")
+    args.dst_endpoint = os.getenv("DST_S3_ENDPOINT")
+    args.src_addressing_style = (os.getenv("SRC_S3_ADDRESSING_STYLE", "auto").strip().lower() or "auto")
+    args.dst_addressing_style = (os.getenv("DST_S3_ADDRESSING_STYLE", "auto").strip().lower() or "auto")
+    args.src_ak = os.getenv("SRC_AWS_ACCESS_KEY_ID")
+    args.src_sk = os.getenv("SRC_AWS_SECRET_ACCESS_KEY")
+    args.src_token = os.getenv("SRC_AWS_SESSION_TOKEN")
+    args.src_profile = os.getenv("SRC_AWS_PROFILE")
+    args.dst_ak = os.getenv("DST_AWS_ACCESS_KEY_ID")
+    args.dst_sk = os.getenv("DST_AWS_SECRET_ACCESS_KEY")
+    args.dst_token = os.getenv("DST_AWS_SESSION_TOKEN")
+    args.dst_profile = os.getenv("DST_AWS_PROFILE")
+    args.workers = get_env_int("WORKERS", 8)
+    args.multipart_threshold_mb = get_env_int("MULTIPART_THRESHOLD_MB", 64)
+    args.multipart_chunk_mb = get_env_int("MULTIPART_CHUNK_MB", 16)
+    args.progress_every = get_env_int("PROGRESS_EVERY", 200)
+    args.log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+    args.log_file = os.getenv("LOG_FILE")
+    if args.force is None:
+        args.force = get_env_bool("FORCE_OVERWRITE", True)
+    args.copy_tags = getattr(args, "copy_tags", False) or get_env_bool("COPY_TAGS", False)
+    args.full_response = get_env_bool("FULL_RESPONSE", False)
+    args.debug_botocore = get_env_bool("DEBUG_BOTOCORE", False)
+    args.traceback_on_error = get_env_bool("TRACEBACK_ON_ERROR", False)
+
     if not args.src_bucket:
-        parser.error("source bucket is required: --src-bucket or .env SRC_BUCKET")
+        parser.error("source bucket is required: set .env SRC_BUCKET")
     if not args.dst_bucket:
-        parser.error("destination bucket is required: --dst-bucket or .env DST_BUCKET")
+        parser.error("destination bucket is required: set .env DST_BUCKET")
     if has_text(args.src_ak) != has_text(args.src_sk):
         parser.error(
-            "source AK/SK must be provided together: "
-            "--src-ak + --src-sk (or env SRC_AWS_ACCESS_KEY_ID + SRC_AWS_SECRET_ACCESS_KEY)"
+            "source AK/SK must be provided together in .env: "
+            "SRC_AWS_ACCESS_KEY_ID + SRC_AWS_SECRET_ACCESS_KEY"
         )
     if has_text(args.dst_ak) != has_text(args.dst_sk):
         parser.error(
-            "destination AK/SK must be provided together: "
-            "--dst-ak + --dst-sk (or env DST_AWS_ACCESS_KEY_ID + DST_AWS_SECRET_ACCESS_KEY)"
+            "destination AK/SK must be provided together in .env: "
+            "DST_AWS_ACCESS_KEY_ID + DST_AWS_SECRET_ACCESS_KEY"
         )
     if args.src_bucket == args.dst_bucket:
-        parser.error("--src-bucket and --dst-bucket cannot be the same")
+        parser.error("SRC_BUCKET and DST_BUCKET cannot be the same")
     if has_text(args.exact_key) and has_text(args.prefix):
-        parser.error("--exact-key and --prefix cannot be used together")
+        parser.error("--file and --folder cannot be used together")
     if has_text(args.exact_key) and args.delete:
-        parser.error("--delete cannot be used with --exact-key")
+        parser.error("--delete cannot be used with --file")
+    if args.src_addressing_style not in {"auto", "path", "virtual"}:
+        parser.error("SRC_S3_ADDRESSING_STYLE must be one of: auto, path, virtual")
+    if args.dst_addressing_style not in {"auto", "path", "virtual"}:
+        parser.error("DST_S3_ADDRESSING_STYLE must be one of: auto, path, virtual")
     if args.workers < 1:
-        parser.error("--workers must be >= 1")
+        parser.error("WORKERS must be >= 1")
     if args.multipart_threshold_mb < 5 or args.multipart_chunk_mb < 5:
-        parser.error("multipart values must be >= 5 MB")
+        parser.error("MULTIPART_THRESHOLD_MB and MULTIPART_CHUNK_MB must be >= 5")
+    if args.progress_every < 1:
+        parser.error("PROGRESS_EVERY must be >= 1")
 
     return args
 
@@ -704,7 +616,7 @@ def main() -> int:
     if has_text(args.dst_ak):
         LOGGER.info("Destination access key in use: %s", mask_access_key(args.dst_ak))
     LOGGER.info(
-        "Sync config: src_bucket=%s dst_bucket=%s src_region=%s dst_region=%s prefix=%s exact_key=%s workers=%s dry_run=%s",
+        "Sync config: src_bucket=%s dst_bucket=%s src_region=%s dst_region=%s prefix=%s exact_key=%s workers=%s dry_run=%s force=%s",
         args.src_bucket,
         args.dst_bucket,
         args.src_region or "<auto>",
@@ -713,6 +625,7 @@ def main() -> int:
         args.exact_key or "<NONE>",
         args.workers,
         args.dry_run,
+        args.force,
     )
     LOGGER.info(
         "S3 endpoint config: src_endpoint=%s dst_endpoint=%s src_style=%s dst_style=%s",
@@ -851,7 +764,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    if "--gui" in sys.argv:
+    if "--gui" in sys.argv or "-g" in sys.argv:
         from s3_sync_tk_gui import launch_gui
 
         sys.exit(launch_gui())
