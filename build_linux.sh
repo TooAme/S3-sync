@@ -20,8 +20,18 @@ else
   INSTALLER_SPEC="pyinstaller"
 fi
 
-echo "Installing builder: $INSTALLER_SPEC"
-"$PYTHON_BIN" -m pip install --upgrade "$INSTALLER_SPEC"
+BUILD_DEPS=(
+  "$INSTALLER_SPEC"
+  "boto3"
+  "botocore"
+  "s3transfer"
+)
+
+echo "Installing build dependencies: ${BUILD_DEPS[*]}"
+"$PYTHON_BIN" -m pip install --upgrade "${BUILD_DEPS[@]}"
+
+echo "Verifying Python dependencies ..."
+"$PYTHON_BIN" -c 'import boto3, botocore, s3transfer, PyInstaller'
 
 mkdir -p dist/linux build/linux
 rm -rf build/linux/*
