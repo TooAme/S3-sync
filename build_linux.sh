@@ -31,7 +31,23 @@ echo "Installing build dependencies: ${BUILD_DEPS[*]}"
 "$PYTHON_BIN" -m pip install --upgrade "${BUILD_DEPS[@]}"
 
 echo "Verifying Python dependencies ..."
-"$PYTHON_BIN" -c 'import boto3, botocore, s3transfer, PyInstaller'
+"$PYTHON_BIN" - <<'PY'
+import importlib.util
+
+modules = ("boto3", "botocore", "s3transfer")
+for name in modules:
+    spec = importlib.util.find_spec(name)
+    if spec is None:
+        raise SystemExit(f"ERROR: missing module '{name}' in build interpreter")
+    is_pkg = bool(getattr(spec, "submodule_search_locations", None))
+    print(f"{name}: origin={spec.origin} package={is_pkg}")
+    if not is_pkg:
+        raise SystemExit(
+            f"ERROR: '{name}' resolved to non-package ({spec.origin}). "
+            "Likely module shadowing in PYTHONPATH/workdir."
+        )
+PY
+"$PYTHON_BIN" -c 'import PyInstaller'
 
 mkdir -p dist/linux build/linux
 rm -rf build/linux/*
@@ -40,9 +56,9 @@ COMMON_ARGS=(
   --clean
   --noconfirm
   --onefile
-  --collect-data botocore
-  --collect-data boto3
-  --collect-data s3transfer
+  --collect-all botocore
+  --collect-all boto3
+  --collect-all s3transfer
   --distpath dist/linux
   --workpath build/linux
 )
