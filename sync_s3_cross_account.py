@@ -210,19 +210,22 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "-p",
-        "--folder",
-        "--prefix",
-        dest="prefix",
-        default=os.getenv("PREFIX", ""),
-        help="Sync by folder path",
+        "--path",
+        dest="path",
+        default=None,
+        help="Sync target path: folder prefix if ends with '/', otherwise exact object key",
     )
     parser.add_argument(
-        "-k",
-        "--file",
+        "--prefix",
+        dest="prefix",
+        default=None,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
         "--exact-key",
         dest="exact_key",
-        default=os.getenv("EXACT_KEY"),
-        help="Sync one file by full object key",
+        default=None,
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "-n",
@@ -306,10 +309,31 @@ def parse_args() -> argparse.Namespace:
         )
     if args.src_bucket == args.dst_bucket:
         parser.error("SRC_BUCKET and DST_BUCKET cannot be the same")
+    if args.path is not None and (has_text(args.exact_key) or has_text(args.prefix)):
+        parser.error("-p/--path cannot be used together with --prefix/--exact-key")
+
+    if args.path is not None:
+        path_value = args.path.strip()
+        if has_text(path_value):
+            if path_value.endswith("/"):
+                args.prefix = path_value
+                args.exact_key = ""
+            else:
+                args.prefix = ""
+                args.exact_key = path_value
+        else:
+            args.prefix = ""
+            args.exact_key = ""
+    else:
+        if args.prefix is None:
+            args.prefix = os.getenv("PREFIX", "")
+        if args.exact_key is None:
+            args.exact_key = os.getenv("EXACT_KEY")
+
     if has_text(args.exact_key) and has_text(args.prefix):
-        parser.error("--file and --folder cannot be used together")
+        parser.error("--exact-key and --prefix cannot be used together")
     if has_text(args.exact_key) and args.delete:
-        parser.error("--delete cannot be used with --file")
+        parser.error("--delete cannot be used with exact-key sync")
     if args.src_addressing_style not in {"auto", "path", "virtual"}:
         parser.error("SRC_S3_ADDRESSING_STYLE must be one of: auto, path, virtual")
     if args.dst_addressing_style not in {"auto", "path", "virtual"}:
