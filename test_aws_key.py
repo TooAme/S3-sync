@@ -30,6 +30,16 @@ RETRY_CONFIG = Config(retries={"max_attempts": 8, "mode": "adaptive"})
 LOGGER = logging.getLogger("aws-key-test")
 
 
+def runtime_base_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+def default_env_file() -> str:
+    return str(runtime_base_dir() / ".env")
+
+
 def load_dotenv(path: str, *, override: bool = True) -> int:
     env_path = Path(path)
     if not env_path.exists():
@@ -160,7 +170,12 @@ def choose_credential_mode(access_key_id: str | None, secret_access_key: str | N
 
 def parse_args() -> argparse.Namespace:
     preload_parser = argparse.ArgumentParser(add_help=False)
-    preload_parser.add_argument("-e", "--env-file", default=".env", help="Path to .env file (default: .env)")
+    preload_parser.add_argument(
+        "-e",
+        "--env-file",
+        default=default_env_file(),
+        help="Path to .env file (default: .env next to executable/script)",
+    )
     preload_args, _ = preload_parser.parse_known_args()
     load_dotenv(preload_args.env_file, override=True)
 

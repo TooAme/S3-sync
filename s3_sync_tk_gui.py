@@ -89,6 +89,12 @@ ERROR_PATTERNS = (
 )
 
 
+def runtime_base_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
 def resolve_python_command() -> str:
     for name in ("python3", "python"):
         if shutil.which(name):
@@ -176,8 +182,9 @@ class SyncGuiApp:
         self.root.geometry("1280x860")
         self.root.minsize(1120, 760)
         self.python_cmd = resolve_python_command()
+        self.runtime_dir = runtime_base_dir()
 
-        self.env_file_var = tk.StringVar(value=str(Path.cwd() / ".env"))
+        self.env_file_var = tk.StringVar(value=str(self.runtime_dir / ".env"))
         self.scope_var = tk.StringVar(value="all")
         self.dry_run_var = tk.BooleanVar(value=False)
         self.delete_var = tk.BooleanVar(value=False)
@@ -802,7 +809,7 @@ class SyncGuiApp:
 
         self.process = subprocess.Popen(
             cmd,
-            cwd=str(Path.cwd()),
+            cwd=str(self.runtime_dir),
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -851,7 +858,7 @@ class SyncGuiApp:
         self.save_env()
         cmd = [
             self.python_cmd,
-            str(Path.cwd() / "test_aws_key.py"),
+            str(self.runtime_dir / "test_aws_key.py"),
             "--which",
             which,
             "--list",
@@ -884,7 +891,7 @@ class SyncGuiApp:
             if not messagebox.askyesno("最終確認", "本実行を続行しますか？"):
                 return
 
-        cmd = [self.python_cmd, str(Path.cwd() / "sync_s3_cross_account.py")]
+        cmd = [self.python_cmd, str(self.runtime_dir / "sync_s3_cross_account.py")]
         cmd += self._build_common_args()
 
         self._append_log(f"[INFO] 実行: {' '.join(cmd)}")
